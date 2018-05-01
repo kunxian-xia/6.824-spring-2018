@@ -145,7 +145,9 @@ func (cfg *config) start1(i int) {
 	// a fresh set of ClientEnds.
 	ends := make([]*labrpc.ClientEnd, cfg.n)
 	for j := 0; j < cfg.n; j++ {
+		//ends[j] is an client endpoint to server j
 		ends[j] = cfg.net.MakeEnd(cfg.endnames[i][j])
+		//setup connection to server j via clientend
 		cfg.net.Connect(cfg.endnames[i][j], j)
 	}
 
@@ -208,9 +210,11 @@ func (cfg *config) start1(i int) {
 	cfg.rafts[i] = rf
 	cfg.mu.Unlock()
 
+	//bind raft service to server i
 	svc := labrpc.MakeService(rf)
 	srv := labrpc.MakeServer()
 	srv.AddService(svc)
+	//server name is i
 	cfg.net.AddServer(i, srv)
 }
 
@@ -299,7 +303,6 @@ func (cfg *config) checkOneLeader() int {
 	for iters := 0; iters < 10; iters++ {
 		ms := 450 + (rand.Int63() % 100)
 		time.Sleep(time.Duration(ms) * time.Millisecond)
-
 		leaders := make(map[int][]int)
 		for i := 0; i < cfg.n; i++ {
 			if cfg.connected[i] {
@@ -318,6 +321,7 @@ func (cfg *config) checkOneLeader() int {
 				lastTermWithLeader = term
 			}
 		}
+		DPrintf("# %d round check\n", iters)
 
 		if len(leaders) != 0 {
 			return leaders[lastTermWithLeader][0]

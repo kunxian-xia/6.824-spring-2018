@@ -20,7 +20,7 @@ import "sync"
 const RaftElectionTimeout = 1000 * time.Millisecond
 
 func TestInitialElection2A(t *testing.T) {
-	servers := 3
+	servers := 7
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
@@ -62,8 +62,10 @@ func TestReElection2A(t *testing.T) {
 	cfg.connect(leader1)
 	leader2 := cfg.checkOneLeader()
 
+	//time.Sleep(2 * RaftElectionTimeout)
 	// if there's no quorum, no leader should
 	// be elected.
+	cfg.t.Logf("disconnect second leader %d\n", leader2)
 	cfg.disconnect(leader2)
 	cfg.disconnect((leader2 + 1) % servers)
 	time.Sleep(2 * RaftElectionTimeout)

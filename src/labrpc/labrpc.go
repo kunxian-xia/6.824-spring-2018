@@ -94,7 +94,7 @@ func (e *ClientEnd) Call(svcMeth string, args interface{}, reply interface{}) bo
 	req.args = qb.Bytes()
 
 	select {
-	case e.ch <- req:
+	case e.ch <- req: //sent the request out to Network
 		// ok
 	case <-e.done:
 		return false
@@ -205,6 +205,7 @@ func (rn *Network) IsServerDead(endname interface{}, servername interface{}, ser
 }
 
 func (rn *Network) ProcessReq(req reqMsg) {
+	//rpc request will be passed to server which
 	enabled, servername, server, reliable, longreordering := rn.ReadEndnameInfo(req.endname)
 
 	if enabled && servername != nil && server != nil {
@@ -307,7 +308,7 @@ func (rn *Network) MakeEnd(endname interface{}) *ClientEnd {
 
 	e := &ClientEnd{}
 	e.endname = endname
-	e.ch = rn.endCh
+	e.ch = rn.endCh //share a req channel with other ClientEnd
 	e.done = rn.done
 	rn.ends[endname] = e
 	rn.enabled[endname] = false
