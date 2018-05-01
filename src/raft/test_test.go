@@ -45,7 +45,7 @@ func TestInitialElection2A(t *testing.T) {
 }
 
 func TestReElection2A(t *testing.T) {
-	servers := 3
+	servers := 5
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
 
@@ -68,6 +68,7 @@ func TestReElection2A(t *testing.T) {
 	cfg.t.Logf("disconnect second leader %d\n", leader2)
 	cfg.disconnect(leader2)
 	cfg.disconnect((leader2 + 1) % servers)
+	cfg.disconnect((leader2 + 2) % servers)
 	time.Sleep(2 * RaftElectionTimeout)
 	cfg.checkNoLeader()
 

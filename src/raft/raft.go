@@ -189,7 +189,10 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.mu.Unlock()
 		reply.Term = args.Term
 		reply.VoteGranted = true
-		rf.resetCh <- 1
+		go func() {
+			rf.resetCh <- 1
+		}()
+
 	} else if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false
@@ -246,47 +249,50 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return ok
 }
-func (rf *Raft) lmode() {
-	for i := 0; i < len(rf.peers); i++ {
-		if i == rf.me {
-			continue
+func (rf *Raft) lmode(term int) {
+	heartbeat := func(server int) {
+		var reply AppendEntriesReply
+		rf.mu.Lock()
+		if rf.state != Leader || rf.currentTerm != term {
+			return
 		}
-		DPrintf("[%d,%d] start heartbeat goroutine for %d\n", rf.currentTerm, rf.me, i)
-		go func(server int) {
-			for {
-				var reply AppendEntriesReply
-				rf.mu.Lock()
-				if rf.state != Leader {
-					break
-				}
-				args := new(AppendEntriesArgs)
-				args.Term = rf.currentTerm
-				args.LeaderId = rf.me
-				rf.mu.Unlock()
+		args := new(AppendEntriesArgs)
+		args.Term = rf.currentTerm
+		args.LeaderId = rf.me
+		rf.mu.Unlock()
 
-				DPrintf("[%d,%d] send heartbeat to %d\n", rf.currentTerm, rf.me,
-					server)
-				ok := rf.sendAppendEntries(server, args, &reply)
-				if ok == true {
-					if reply.Term > rf.currentTerm {
-						DPrintf("[%d, %d] discover server with higher term (%d, %d)\n",
-							rf.currentTerm, rf.me, server, reply.Term)
-						DPrintf("[%d, %d] leader -> follower\n", rf.currentTerm, rf.me)
-						rf.mu.Lock()
-						rf.currentTerm = reply.Term
-						rf.state = Follower
-						rf.votedFor = -1
-						rf.mu.Unlock()
-						rf.resetCh <- 1
-						break
-					}
-				} else {
-					DPrintf("[%d, %d] send heartbeat to %d failed\n", rf.currentTerm, rf.me,
-						server)
-				}
-				time.Sleep(time.Duration(rf.heartbeatTimeout) * time.Millisecond)
+		DPrintf("[%d,%d] send heartbeat to %d\n", rf.currentTerm, rf.me,
+			server)
+		ok := rf.sendAppendEntries(server, args, &reply)
+		if ok == true {
+			if reply.Term > rf.currentTerm {
+				DPrintf("[%d, %d] discover server with higher term (%d, %d)\n",
+					rf.currentTerm, rf.me, server, reply.Term)
+				DPrintf("[%d, %d] leader -> follower\n", rf.currentTerm, rf.me)
+				rf.mu.Lock()
+				rf.currentTerm = reply.Term
+				rf.state = Follower
+				rf.votedFor = -1
+				rf.mu.Unlock()
+				rf.resetCh <- 1
+				return
 			}
-		}(i)
+		} else {
+			DPrintf("[%d, %d] send heartbeat to %d failed\n", rf.currentTerm, rf.me,
+				server)
+		}
+	}
+
+	for {
+		if rf.state != Leader {
+			return
+		}
+		for i := 0; i < len(rf.peers); i++ {
+			if i != rf.me {
+				go heartbeat(i)
+			}
+		}
+		time.Sleep(time.Duration(rf.heartbeatTimeout) * time.Millisecond)
 	}
 }
 
@@ -305,7 +311,7 @@ func (rf *Raft) cmode(term int) {
 				var reply RequestVoteReply
 
 				if rf.state != Candidate || rf.currentTerm > term {
-					break
+					return
 				}
 				//DPrintf("[%d, %d]: send vote request to %d\n", rf.currentTerm,
 				//rf.me, server)
@@ -333,10 +339,10 @@ func (rf *Raft) cmode(term int) {
 							//switch to leader mode
 							DPrintf("[%d, %d] candidate -> leader\n", rf.currentTerm, rf.me)
 							rf.state = Leader
-							go rf.lmode()
+							go rf.lmode(rf.currentTerm)
 						}
 					}
-					break
+					return
 				}
 				//try to reconnect the remote node after some fixed time
 				time.Sleep(time.Duration(rf.heartbeatTimeout) * time.Millisecond)
@@ -357,6 +363,7 @@ func (rf *Raft) fmode() {
 				rf.state = Candidate
 				rf.votedFor = rf.me
 				rf.mu.Unlock()
+				rf.electionTimer.Reset(time.Duration(rf.electionTimeout) * time.Millisecond)
 				go rf.cmode(rf.currentTerm)
 			}
 		case <-rf.resetCh:
