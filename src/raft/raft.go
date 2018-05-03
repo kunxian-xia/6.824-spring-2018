@@ -70,7 +70,14 @@ type Raft struct {
 	// Your data here (2A, 2B, 2C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
+	logs     []ApplyMsg
+	logTerms []int
 
+	nextIndex  []int
+	matchIndex []int
+
+	commitIndex int
+	lastApplied int
 }
 
 // return currentTerm and whether this server
@@ -127,18 +134,38 @@ func (rf *Raft) readPersist(data []byte) {
 }
 
 type AppendEntriesArgs struct {
-	Term     int
-	LeaderId int
+	Term         int
+	LeaderId     int
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entries      []ApplyMsg
+	LeaderCommit int
 }
 
 type AppendEntriesReply struct {
-	Term int
+	Term    int
+	Success bool
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	DPrintf("[%d, %d] recieve heartbeat from [%d, %d]\n", rf.currentTerm, rf.me,
 		args.Term, args.LeaderId)
 	if args.Term >= rf.currentTerm { //recieves heartbeat from leader
+		if len(rf.logTerms) < args.PrevLogIndex ||
+			rf.logTerms[args.PrevLogIndex-1] != args.PrevLogTerm {
+			//report log inconsistency
+			reply.Success = false
+		} else {
+			//sync logs from leader
+			for i := 0; i < len(args.Entries); i++ {
+				if i+args.PrevLogIndex < len(rf.logs) {
+					rf.logs[i+args.PrevLogIndex] = args.Entries[i]
+				} else {
+					rf.logs = append(rf.logs, args.Entries[i])
+				}
+			}
+		}
+
 		rf.mu.Lock()
 		rf.state = Follower
 		rf.currentTerm = args.Term
@@ -148,6 +175,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.resetCh <- 1
 	} else {
 		reply.Term = rf.currentTerm
+		reply.Success = false
 	}
 }
 
